@@ -1,4 +1,31 @@
     <?php
+/*
+ * Author: KEANT Technologies              Date: 18 MAY 2026
+ *
+ * Purpose:
+ * This logic handles account number retrieval for Account Detail navigation
+ * using URL request parameters instead of shared PHP SESSION storage.
+ *
+ * Previous Behavior:
+ * - Account number fetched from PHP SESSION
+ * - Shared session caused account overwrite across multiple browser tabs
+ *
+ * New Behavior:
+ * - Account number fetched from URL parameter ($_GET['acc'])
+ * - Base64 decoded before processing
+ * - Supports independent multi-tab account navigation
+ *
+ * Key Changes:
+ * - Removed dependency on $_SESSION['accNo']
+ * - Added URL parameter-based account handling
+ * - Preserved existing account trimming/format logic
+ *
+ * Change Tag:
+ * ----------------------------------------------------------------------------
+ * AH18052026 | Replaced session-based account handling with URL parameter
+ * ----------------------------------------------------------------------------
+ * ============================================================================
+ */ 
     session_start();
     error_reporting(0);
     include '../config.php';
@@ -11,15 +38,23 @@
     {
     $output = '';
     $sql = "SELECT * FROM CG_Data";
+
     $result = mysqli_query($conn, $sql);
-    while ($row = mysqli_fetch_array($result)) {
+    while ($row = mysqli_fetch_array($result))
+         {
         $output .= '<option value="' . $row["client_code"] . '">' . $row["client_code"] . '</option>';
     }
     return $output;
     }   
 
-$acc =$_SESSION['rmsfilenumenc'];
-$accountno=$_SESSION['statusupdateaccno'];
+//AH18052026 - Parameterized account handling for Portfolio Docs
+$accountno = '';
+if(isset($_GET['acc']) && $_GET['acc'] != '')
+{
+    $accountno = strtoupper(base64_decode($_GET['acc']));
+}
+$acc = '';
+//AH18052026
 
 
   $atty_cde     =$_SESSION['firmCode'];
@@ -112,10 +147,19 @@ $query1="SELECT DISTINCT  A.CLIENT_CDE,A.PORTFOLIO_CDE AS PORTFOLIO_CODE
          FROM MASTER_DATA_DB A
          where ".$que1.$query." ".$NewQuerymaster."";
 //echo $query1;exit;
-  $result             = mysqli_query($conn,$query1);
-  $row                =mysqli_fetch_array($result);
-  $clicde             =base64_encode($row['CLIENT_CDE']);
-  $portcode           =$row['PORTFOLIO_CODE'];
+$result1 = mysqli_query($conn, $query1);
+
+if(!$result1){
+    die("QUERY FAILED : " . mysqli_error($conn));
+}
+
+$row1 = mysqli_fetch_array($result1);
+
+if(!$row1){
+    die("NO CLIENT FOUND FOR ACCOUNT : ".$accountnoget);
+}
+$clicde = base64_encode($row1['CLIENT_CDE']);
+$portcode = $row1['PORTFOLIO_CODE'];
 
   $_SESSION['port']   =base64_encode(1);
   $_SESSION['portcode']=base64_encode($portcode);
@@ -189,13 +233,15 @@ $query1="SELECT DISTINCT  A.CLIENT_CDE,A.PORTFOLIO_CDE AS PORTFOLIO_CODE
                     LEFT JOIN CG_Document_Text C ON A.Placement_Document_Text_Options = C.Description
                     LEFT JOIN CG_Affidavit_Text E ON A.Affidavit_Requirement_Options=E.Text_Desctiption
                     LEFT JOIN CG_Interest_attorney_fees IAF ON IAF.Text_Heading=A.INTEREST_ATTORNEY_FESS
-                    WHERE A.client_code = '".$getclicode."'";//echo $sql;exit;
+                    WHERE TRIM(A.client_code) = TRIM('".$getclicode."')";//echo $sql;exit;
                 $result              = mysqli_query($conn, $sql); 
                 $row                 = mysqli_fetch_array($result);
                 $prior_authority_text=$row['prior_authority_text'];
                 $media_request_text  =$row['mediarequest'];
                 $witness_text        =$row['witnesstext'];
-                $editeddate          =date('Y-m-d',strtotime($row['editeddate']));
+                $editeddate = !empty($row['EditedDate']) 
+                ? date('Y-m-d', strtotime($row['EditedDate'])) 
+                : '--';
      /*to find debt buyer list*/
      $bebtquery="SELECT DISTINCT RMSBRGLVL2
                 FROM RMSPSYSASN
@@ -206,6 +252,7 @@ $query1="SELECT DISTINCT  A.CLIENT_CDE,A.PORTFOLIO_CDE AS PORTFOLIO_CODE
    $checkbosquery="SELECT count(1) as total from CG_BOS_Matrix WHERE CLIENT_CDE = '".$getclicode."'";  
    $checkbosresult =mysqli_query($conn,$checkbosquery); 
    $rescheckbosresult=mysqli_fetch_assoc($checkbosresult);
+
 /* for client contact information=============================================================================*/
 $selectccregQuery="SELECT CCODE,TAXID,CNAME,RFNAME,RLNAME,RANAME,REGEMAIL,ADDR1,ADDR2,COUNTRY,STATE,CITY,ZIP_CODE,MAIN_PHONE,TOLL_FREE_NO,FAX_NUM,WEBADDR from  Client_Contact_Information where CCODE='".$getclicode."'";
 $resccregQuery=  mysqli_query($conn, $selectccregQuery); 
@@ -216,6 +263,9 @@ if(mysqli_num_rows($resccregQuery)>0){
    $selectccregQuery1="SELECT CCODE,TAXID,CNAME,RFNAME,RLNAME,RANAME,REGEMAIL,ADDR1,ADDR2,COUNTRY,STATE,CITY,ZIP_CODE,MAIN_PHONE,TOLL_FREE_NO,FAX_NUM,WEBADDR from  CC_REGSTR where CCODE='".$getclicode."'";
 }
 $resccregQuery1=  mysqli_query($conn, $selectccregQuery1);
+//AH24052026
+$contactRow = mysqli_fetch_assoc($resccregQuery1);
+
 /* for privilege notice=============================================================================*/
 $privnoticeQuery="select Notice from CG_Privilege_Notice";
 $resprivnoticeQuery= mysqli_query($conn, $privnoticeQuery);
@@ -297,7 +347,7 @@ $rowprivnoticeQuery=mysqli_fetch_assoc($resprivnoticeQuery);
 <form method="post" id="formid" enctype="multipart/formdata">
 <div class="box-body">
 <div class="tab-content">
-<?php if(mysqli_num_rows($result) > 0 && $rescheckbosresult['total'] > 0){?>
+<?php if(mysqli_num_rows($result) > 0){?>
 <div class="col-md-12" id="demo">
     <div class="nav-tabs-custom clearfix">
         <div class="tab-pane" id="">
@@ -309,8 +359,16 @@ $rowprivnoticeQuery=mysqli_fetch_assoc($resprivnoticeQuery);
                 <div class="col-md-12 clt-addr">
                     <div class="col-md-4">
                         <p><strong>Address:</strong></p>
-                        <p><?php echo $row["street_address1"];?></p>
-                        <p><?php echo $row["city"].', '.$row["state"].' '.$row["zip_code"];?> </p>
+                        <p><?php echo $contactRow["ADDR1"];?></p>
+                        <p><?php
+                        $address = trim(
+                            $contactRow["CITY"].' '.
+                            $contactRow["STATE"].' '.
+                            $contactRow["ZIP_CODE"]
+                        );
+                        echo $address != '' ? $address : '--';
+                        ?>                        </p>
+                        
                     </div>
                     <div class="col-md-4">
                         <p><strong>Primary Client Contact:</strong></p>
@@ -323,7 +381,13 @@ $rowprivnoticeQuery=mysqli_fetch_assoc($resprivnoticeQuery);
                     </div>
                     <div class="col-md-4">
                         <p><strong>Phone:</strong></p>
-                        <p><?php echo $row["main_office_number"];?></p>
+                        <p>
+                        <?php 
+                        echo $contactRow["MAIN_PHONE"] != ''
+                        ? $contactRow["MAIN_PHONE"]
+                        : '--';
+                        ?>
+                        </p>
                          <?php if($row['toll_free_number']!=''){?>
                         <p>Toll Free Number:<?php echo $row['toll_free_number'];?>
                         <?php } ?>
@@ -1176,7 +1240,8 @@ $rowprivnoticeQuery=mysqli_fetch_assoc($resprivnoticeQuery);
                                             </div>
                                             <div id="InnerCollapse20" class="panel-collapse collapse">
                                                 <div class="panel-body">
-                                                    <?php while($getallval=mysqli_fetch_assoc($resccregQuery1)){?>
+                                                    <?php mysqli_data_seek($resccregQuery1, 0);
+                                                    while($getallval=mysqli_fetch_assoc($resccregQuery1)){?>
                                                     <div class="col-md-12">
                                                         <div class="col-md-6">
                                                           <span><strong>Company name : </strong><?php echo $getallval['CNAME'];?></span>
@@ -1439,15 +1504,37 @@ $rowprivnoticeQuery=mysqli_fetch_assoc($resprivnoticeQuery);
                                 <div class="panel-body">
                                 <p><b>Client:</b></p>
                                 <p><?php echo $row['client_name'];?></p>
-                               <p><?php echo $row["street_address1"];?></p>
-                               <p><?php echo $row["city"].', '.$row["state"].' '.$row["zip_code"];?> </p>
+                               <p>
+                                <?php 
+                                echo $contactRow["ADDR1"] != ''
+                                ? $contactRow["ADDR1"]
+                                : '--';
+                                ?>
+                                </p>
+                                <p>
+                                <?php  echo $contactRow["CITY"].', '.$contactRow["STATE"].' '.$contactRow["ZIP_CODE"];
+                                ?>
+                                </p>
                                <p><b>Primary Contact:</b></p>
-                               <p><?php echo $row["contact_first_name"].' '.$row["contact_last_name"];?></p>
+                               <p>
+                                <?php 
+                                echo trim($contactRow["RFNAME"].' '.$contactRow["RLNAME"]) != ''
+                                ? $contactRow["RFNAME"].' '.$contactRow["RLNAME"]
+                                : '--';
+                                ?>
+                                </p>
+                               
                                 <?php if($row['Contact_Title']!=''){?>
                                 <p>Title:<?php echo $row['Contact_Title'];?>
                                 <?php } ?>
-                                <p><?php echo $row["contact_email_address"];?></p>
-                                <p><?php echo $row["contact_phone_number"];?></p>
+                                <p><?php echo $contactRow["REGEMAIL"];?></p>
+                                <p>
+                                <?php 
+                                echo $contactRow["MAIN_PHONE"] != ''
+                                ? $contactRow["MAIN_PHONE"]
+                                : '--';
+                                ?>
+                                </p>
                                 <p><b>Client Code : </b><?php echo $row["client_code"];?></p>
                                  <p>
                                          
